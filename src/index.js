@@ -45,6 +45,9 @@ sequelize
   });
 
 // Use the v1 router for API versioning
+app.get("/", (req, res) => {
+  res.send("✅ API Soporte Caribe funcionando");
+});
 app.use("/v1/usuarios", v1UserRoutes);
 app.use("/v1/modulos", v1ModuloRoutes);
 app.use("/v1/roles", v1RolRoutes);
