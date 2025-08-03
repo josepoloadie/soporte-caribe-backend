@@ -14,6 +14,11 @@ const v1UserRoutes = require("./v1/routes/usuarios/usuarioRoutes");
 const v1ModuloRoutes = require("./v1/routes/modulos/moduloRoutes");
 const v1RolRoutes = require("./v1/routes/roles/rolesRoutes");
 
+const allowedOrigins = [
+  "http://localhost:5173", // desarrollo local
+  "https://www.soportecaribe.com", // producción
+];
+
 // En desarrollo
 // app.use(
 //   cors({
@@ -24,7 +29,13 @@ const v1RolRoutes = require("./v1/routes/roles/rolesRoutes");
 //En producción
 app.use(
   cors({
-    origin: "https://www.soportecaribe.com",
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("CORS no permitido para este origen"));
+      }
+    },
     credentials: true,
   })
 );
