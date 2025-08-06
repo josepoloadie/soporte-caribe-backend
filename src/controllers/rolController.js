@@ -92,17 +92,24 @@ const updateRol = async (req, res) => {
 };
 const deleteRol = async (req, res) => {
   try {
-    const resultado = await deleteRolService.deleteRol(req.params.id);
-    if (!resultado) {
-      return res.status(404).json({ mensaje: "Rol no encontrado" });
+    const { id } = req.params;
+
+    const resultado = await deleteRolService.deleteRol(id);
+
+    if (!resultado.eliminado) {
+      const statusCode = resultado.razon === "Rol no encontrado" ? 404 : 400;
+      return res.status(statusCode).json({ mensaje: resultado.razon });
     }
 
     res.status(200).json({
-      mensaje: "Rol eliminado",
-      rol: resultado.dataValues || null,
+      mensaje: "Rol eliminado correctamente",
+      rol: resultado.rol,
     });
   } catch (error) {
-    res.status(500).json({ mensaje: "Error al eliminar el rol", error });
+    console.error("Error en deleteRolController:", error);
+    res.status(500).json({
+      mensaje: "Error interno del servidor al intentar eliminar el rol",
+    });
   }
 };
 

@@ -13,10 +13,20 @@ const RolModulo = sequelize.define(
     rolId: {
       type: DataTypes.UUID,
       allowNull: false,
+      references: {
+        model: "rol", // 👈 nombre de la tabla real
+        key: "id",
+      },
+      onDelete: "CASCADE",
     },
     moduloId: {
       type: DataTypes.UUID,
       allowNull: false,
+      references: {
+        model: "modulo", // 👈 nombre de la tabla real
+        key: "id",
+      },
+      onDelete: "CASCADE",
     },
   },
   {
