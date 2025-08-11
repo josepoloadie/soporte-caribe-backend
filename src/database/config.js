@@ -1,7 +1,25 @@
-const dotenv = require("dotenv").config();
+// src/database/config.js
+require("dotenv").config();
 const { Sequelize } = require("sequelize");
 
-console.log("BD SOPORTE CARIBE");
+console.log("🔌 Conectando a BD Soporte Caribe...");
+
+const requiredEnv = [
+  "DB_NAME",
+  "DB_USER",
+  "DB_PASSWORD",
+  "DB_HOST",
+  "DB_PORT",
+  "DB_DIALECT",
+];
+requiredEnv.forEach((key) => {
+  if (!process.env[key]) {
+    console.error(`❌ Falta variable de entorno: ${key}`);
+    process.exit(1);
+  }
+});
+
+const NODE_ENV = process.env.NODE_ENV || "development";
 
 const sequelize = new Sequelize(
   process.env.DB_NAME,
@@ -11,25 +29,16 @@ const sequelize = new Sequelize(
     host: process.env.DB_HOST,
     port: Number(process.env.DB_PORT),
     dialect: process.env.DB_DIALECT,
-    logging: false,
+    logging: NODE_ENV !== "production" ? console.log : false,
+    define: {
+      charset: "utf8mb4",
+      collate: "utf8mb4_unicode_ci",
+    },
+    timezone: "-05:00", // Hora Colombia
+    dialectOptions: {
+      // ssl: { require: true, rejectUnauthorized: false }, // si tu hosting lo exige
+    },
   }
 );
 
 module.exports = sequelize;
-
-// require("dotenv").config();
-// const { Sequelize } = require("sequelize");
-
-// const sequelize = new Sequelize(
-//   process.env.MYSQLDATABASE,
-//   process.env.MYSQLUSER,
-//   process.env.MYSQLPASSWORD,
-//   {
-//     host: process.env.MYSQLHOST,
-//     port: process.env.MYSQLPORT,
-//     dialect: "mysql",
-//     logging: false, // cambia a true si quieres ver las queries
-//   }
-// );
-
-// module.exports = sequelize;
