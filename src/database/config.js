@@ -28,17 +28,26 @@ const sequelize = new Sequelize(
   {
     host: process.env.DB_HOST,
     port: Number(process.env.DB_PORT),
-    dialect: process.env.DB_DIALECT,
+    dialect: process.env.DB_DIALECT, // 'mysql'
     logging: NODE_ENV !== "production" ? console.log : false,
+    benchmark: NODE_ENV !== "production", // mide duración de queries en dev
     define: {
       charset: "utf8mb4",
       collate: "utf8mb4_unicode_ci",
+      // freezeTableName: true, // si NO quieres pluralización automática
     },
-    timezone: "-05:00", // Hora Colombia
+    pool: {
+      max: 10,
+      min: 0,
+      acquire: 30000,
+      idle: 10000,
+    },
+    retry: { max: 3 }, // reintentos autocontenidos ante errores transitorios
+    timezone: "-05:00", // Hora Colombia (afecta sólo DATETIME, no TIMESTAMP)
     dialectOptions: {
+      // dateStrings: true, typeCast: true, // si necesitas strings para fechas
       // ssl: { require: true, rejectUnauthorized: false }, // si tu hosting lo exige
     },
   }
 );
-
 module.exports = sequelize;
