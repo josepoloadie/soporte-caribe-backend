@@ -5,7 +5,7 @@ const rolModuloController = require("../../../controllers/rolModuloController");
 const authMiddleware = require("../../../middleware/authMiddleware");
 
 //Ruta Publica
-
+// router.use(authMiddleware);
 // Rutas básicas del rol
 router.get("/", rolController.getAllRols);
 router.get("/:id", rolController.getRolById);
@@ -18,7 +18,5 @@ router.delete("/:id", rolController.deleteRol);
 router.get("/:id/modulos", rolModuloController.getModulosPorRol);
 router.post("/:id/modulos", rolModuloController.createModulosToRol);
 router.delete("/:id/modulos/:moduloId", rolModuloController.deleteModuloDeRol);
-
-router.use(authMiddleware);
 
 module.exports = router;
