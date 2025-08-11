@@ -1,205 +1,270 @@
-// src/controllers/usuariosController.js
-const getAllUsuariosService = require("../services/usuario/getAllUsuarios");
-const getUsuarioByIdService = require("../services/usuario/getUsuarioById");
-const createUsuarioService = require("../services/usuario/createUsuario");
-const updateUsuarioService = require("../services/usuario/updateUsuario");
-const deleteUsuarioService = require("../services/usuario/deleteUsuario");
-const getUsuarioByDocumentoService = require("../services/usuario/getUsuarioByDocumento");
-const getModulosByRolService = require("../services/roles/getModulosByRol");
-const getUsuariosPaginadosService = require("../services/usuario/getPaginado");
-const bcrypt = require("bcrypt");
+// src/controllers/usuarioController.js  <-- renombra el archivo o ajusta el require en la ruta
+const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const usuarioService = require("../services/usuario/usuarioService");
 
 const login = async (req, res) => {
-  const { identificacion, contraseña } = req.body;
   try {
-    const usuario = await getUsuarioByDocumentoService.getUsuarioByDocumento(
-      identificacion
-    );
-
-    if (!usuario) {
-      return res.status(404).json({ mensaje: "Usuario no encontrado" });
+    const { identificacion, contraseña } = req.body || {};
+    if (!identificacion || !contraseña) {
+      return res
+        .status(400)
+        .json({ mensaje: "identificacion y contraseña son obligatorios" });
     }
 
-    const esValida = await bcrypt.compare(contraseña, usuario.contraseña);
-    if (!esValida) {
+    const usuario = await usuarioService.getUsuarioByDocumento(identificacion, {
+      withPassword: true,
+    });
+    if (!usuario)
+      return res.status(404).json({ mensaje: "Usuario no encontrado" });
+
+    const ok = await bcrypt.compare(contraseña, usuario.contraseña);
+    if (!ok)
       return res
         .status(401)
-        .json({ mensaje: "Identificacion o contraseña incorrecta" });
-    }
-
-    if (usuario.status == false) {
+        .json({ mensaje: "Identificación o contraseña incorrecta" });
+    if (usuario.status === false)
       return res.status(401).json({ mensaje: "Usuario deshabilitado" });
-    }
 
-    // ✅ Actualizar última conexión
-    usuario.ultima_conexion = new Date();
-    await usuario.save();
-
-    const rol = await getModulosByRolService.getModulosByRol(usuario.rolId);
-    const modulos = rol.datos.modulos.map((m) => m);
-
-    const payload = {
+    // Si debe cambiar contraseña: token corto y bandera
+    const basePayload = {
+      sub: usuario.id,
       identificacion: usuario.identificacion,
       nombre: usuario.nombre,
       rol: { id: usuario.rol.id, nombre: usuario.rol.nombre },
-      modulos: modulos,
     };
 
-    const token = jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: process.env.JWT_EXPIRES_IN,
-    });
+    if (usuario.mustChangePassword) {
+      const token = jwt.sign(
+        { ...basePayload, mustChangePassword: true },
+        process.env.JWT_SECRET,
+        {
+          expiresIn: "15m",
+        }
+      );
+      return res.status(200).json({
+        mensaje: "Debe cambiar la contraseña",
+        requirePasswordChange: true,
+        token,
+        usuario: basePayload,
+      });
+    }
+
+    // Si NO debe cambiarla, carga módulos y procede normal
+    const rolResp = await usuarioService.getModulosByRol(usuario.rolId);
+    const modulos = (rolResp?.datos?.modulos || []).map((m) => ({
+      id: m.id,
+      nombre: m.nombre,
+      ruta: m.ruta,
+    }));
+
+    const token = jwt.sign(
+      { ...basePayload, modulos },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: process.env.JWT_EXPIRES_IN || "1h",
+      }
+    );
+
+    // marca última conexión
+    usuario.ultima_conexion = new Date();
+    await usuario.save();
 
     return res.status(200).json({
       mensaje: "Login exitoso",
       token,
-      usuario: {
-        identificacion: usuario.identificacion,
-        nombre: usuario.nombre,
-        rol: { id: usuario.rol.id, nombre: usuario.rol.nombre },
-        modulos: modulos,
-      },
+      usuario: { ...basePayload, modulos },
     });
   } catch (error) {
-    res.status(500).json({ mensaje: "Error al iniciar sesion", error });
+    console.error("login error:", error);
+    return res.status(500).json({ mensaje: "Error al iniciar sesion" });
+  }
+};
+
+const changePassword = async (req, res) => {
+  try {
+    const { oldPassword, newPassword, confirm } = req.body || {};
+    const userIdFromToken = req.user?.sub; // lo pone el authMiddleware
+
+    if (!oldPassword || !newPassword || !confirm) {
+      return res.status(400).json({ mensaje: "Faltan campos" });
+    }
+    if (newPassword !== confirm) {
+      return res.status(400).json({ mensaje: "Las contraseñas no coinciden" });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({
+        mensaje: "La nueva contraseña debe tener al menos 8 caracteres",
+      });
+    }
+
+    const user = await usuarioService.getUsuarioById(userIdFromToken, {
+      withPassword: true,
+    });
+    if (!user)
+      return res.status(404).json({ mensaje: "Usuario no encontrado" });
+
+    const ok = await bcrypt.compare(oldPassword, user.contraseña);
+    if (!ok)
+      return res.status(401).json({ mensaje: "Contraseña actual incorrecta" });
+
+    const same = await bcrypt.compare(newPassword, user.contraseña);
+    if (same)
+      return res.status(400).json({
+        mensaje: "La nueva contraseña debe ser diferente a la actual",
+      });
+
+    await usuarioService.updateUsuario(userIdFromToken, {
+      contraseña: newPassword,
+      mustChangePassword: false,
+      password_changed_at: new Date(),
+      ultima_conexion: new Date(),
+    });
+
+    return res.status(200).json({ mensaje: "Contraseña actualizada" });
+  } catch (error) {
+    console.error("changePassword error:", error);
+    return res.status(500).json({ mensaje: "Error al cambiar la contraseña" });
   }
 };
 
 const getAllUsuarios = async (req, res) => {
   try {
-    const usuarios = await getAllUsuariosService.getAllUsuarios(req, res);
-    res.status(200).json(usuarios);
+    const usuarios = await usuarioService.getAllUsuarios();
+    return res.status(200).json(usuarios);
   } catch (error) {
-    res.status(500).json({ mensaje: "Error al obtener los usuarios", error });
+    console.error("getAllUsuarios error:", error);
+    return res.status(500).json({ mensaje: "Error al obtener los usuarios" });
   }
 };
 
 const getUsuarioById = async (req, res) => {
   try {
-    const usuario = await getUsuarioByIdService.getUsuarioById(req.params.id);
-    if (!usuario) {
+    const usuario = await usuarioService.getUsuarioById(req.params.id);
+    if (!usuario)
       return res.status(404).json({ mensaje: "Usuario no encontrado" });
-    }
-    res.status(200).json(usuario);
+    return res.status(200).json(usuario);
   } catch (error) {
-    res.status(500).json({ mensaje: "Error al obtener el usuario", error });
+    console.error("getUsuarioById error:", error);
+    return res.status(500).json({ mensaje: "Error al obtener el usuario" });
   }
 };
 
 const createUsuario = async (req, res) => {
   try {
-    const nuevoUsuario = await createUsuarioService.createUsuario(req.body);
-    res.status(201).json(nuevoUsuario);
+    const creado = await usuarioService.createUsuario(req.body);
+    return res.status(201).json(creado);
   } catch (error) {
-    res.status(500).json({ mensaje: "Error al crear el usuario", error });
+    console.error("createUsuario error:", error);
+    return res.status(500).json({ mensaje: "Error al crear el usuario" });
   }
 };
 
 const createUsuarioMasivo = async (req, res) => {
   try {
-    if (!req.body || !Array.isArray(req.body.usuarios)) {
+    const lista = req.body?.usuarios;
+    if (!Array.isArray(lista)) {
       return res.status(400).json({ mensaje: "Formato de datos incorrecto" });
     }
 
-    const data = req.body.usuarios;
-    const resultados = {
-      creados: [],
-      errores: [],
-      duplicados: [],
-    };
+    const resultados = { creados: [], errores: [], duplicados: [] };
 
-    for (const usuario of data) {
-      const { identificacion, ...resto } = usuario;
-
+    for (const item of lista) {
       try {
-        // Evita sobrescribir la variable 'usuario'
-        const existente =
-          await getUsuarioByDocumentoService.getUsuarioByDocumento(
-            identificacion
-          );
-
+        const { identificacion, ...resto } = item;
+        const existente = await usuarioService.getUsuarioByDocumento(
+          identificacion
+        );
         if (existente) {
           resultados.duplicados.push({ identificacion });
           continue;
         }
 
-        const id = await createUsuarioService.createUsuario({
+        const creado = await usuarioService.createUsuario({
           identificacion,
           ...resto,
         });
-
-        resultados.creados.push({ identificacion, id });
-      } catch (error) {
-        resultados.errores.push({
-          usuario, // aquí se refiere correctamente al usuario original del array
-          error: error.message,
-        });
+        resultados.creados.push({ identificacion, id: creado.id });
+      } catch (err) {
+        resultados.errores.push({ item, error: err.message });
       }
     }
 
-    res.status(200).json({
-      mensaje: "Carga Completada",
-      resultados,
-    });
+    return res.status(200).json({ mensaje: "Carga Completada", resultados });
   } catch (error) {
-    res.status(500).json({
-      mensaje: "Error al crear usuarios masivos",
-      error: error.message,
-    });
+    console.error("createUsuarioMasivo error:", error);
+    return res.status(500).json({ mensaje: "Error al crear usuarios masivos" });
   }
 };
 
 const updateUsuario = async (req, res) => {
   try {
-    const usuarioActualizado = await updateUsuarioService.updateUsuario(
+    const actualizado = await usuarioService.updateUsuario(
       req.params.id,
       req.body
     );
-    if (!usuarioActualizado) {
+    if (!actualizado)
       return res.status(404).json({ mensaje: "Usuario no encontrado" });
-    }
-    res.status(200).json(usuarioActualizado);
+    return res.status(200).json(actualizado);
   } catch (error) {
-    res.status(500).json({ mensaje: "Error al actualizar el usuario", error });
+    console.error("updateUsuario error:", error);
+    return res.status(500).json({ mensaje: "Error al actualizar el usuario" });
   }
 };
 
 const deleteUsuario = async (req, res) => {
   try {
-    const resultado = await deleteUsuarioService.deleteUsuario(req.params.id);
-    if (!resultado) {
+    const eliminado = await usuarioService.deleteUsuario(req.params.id);
+    if (!eliminado)
       return res.status(404).json({ mensaje: "Usuario no encontrado" });
-    }
 
-    res.status(200).json({
-      mensaje: "Usuario eliminado",
-      usuario: resultado.dataValues || null,
-    });
+    // si el service retorna instancia destruida, exponla sin contraseña
+    const data = eliminado?.dataValues
+      ? (() => {
+          const o = { ...eliminado.dataValues };
+          delete o.contraseña;
+          return o;
+        })()
+      : null;
+
+    return res
+      .status(200)
+      .json({ mensaje: "Usuario eliminado", usuario: data });
   } catch (error) {
-    res.status(500).json({ mensaje: "Error al eliminar el usuario", error });
+    console.error("deleteUsuario error:", error);
+    return res.status(500).json({ mensaje: "Error al eliminar el usuario" });
   }
 };
 
 const getUsuariosPaginados = async (req, res) => {
   try {
-    const { page = 1, limit = 10, identificacion, nombre } = req.query;
-    const resultado = await getUsuariosPaginadosService.getPaginado({
+    const page = Math.max(parseInt(req.query.page ?? "1", 10), 1);
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit ?? "10", 10), 1),
+      100
+    );
+    const identificacion =
+      req.query.identificacion?.toString().trim() || undefined;
+    const nombre = req.query.nombre?.toString().trim() || undefined;
+
+    const resultado = await usuarioService.getPaginado({
       page,
       limit,
       identificacion,
       nombre,
     });
-    res.json(resultado);
+    return res.status(200).json(resultado);
   } catch (error) {
-    res.status(500).json({
-      mensaje: "Error al obtener usuarios paginados",
-      error: error.message,
-    });
+    console.error("getUsuariosPaginados error:", error);
+    return res
+      .status(500)
+      .json({ mensaje: "Error al obtener usuarios paginados" });
   }
 };
 
 module.exports = {
   login,
+  changePassword,
   getAllUsuarios,
   getUsuarioById,
   createUsuario,
