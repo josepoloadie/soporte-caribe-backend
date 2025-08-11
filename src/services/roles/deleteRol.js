@@ -1,5 +1,5 @@
 const Rol = require("../../database/models/rol");
-const RolModulo = require("../../database/models/rolModulo");
+const RolModulo = require("../../database/models/RolModulo");
 const Usuario = require("../../database/models/usuario");
 
 const deleteRol = async (id) => {
